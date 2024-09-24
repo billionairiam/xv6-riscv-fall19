@@ -144,6 +144,9 @@ UPROGS=\
 	$U/_mounttest\
 	$U/_crashtest\
 	$U/_alloctest\
+	$U/_trace\
+	$U/_sysinfotest\
+	$U/_clear\
 
 fs.img: mkfs/mkfs README user/xargstest.sh $(UPROGS)
 	mkfs/mkfs fs.img README user/xargstest.sh $(UPROGS)

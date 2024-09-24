@@ -106,6 +106,8 @@ extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
 extern uint64 sys_ntas(void);
 extern uint64 sys_crash(void);
+extern uint64 sys_trace(void);
+extern uint64 sys_sysinfo(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -131,7 +133,270 @@ static uint64 (*syscalls[])(void) = {
 [SYS_close]   sys_close,
 [SYS_ntas]    sys_ntas,
 [SYS_crash]   sys_crash,
+[SYS_trace]   sys_trace,
+[SYS_sysinfo] sys_sysinfo,
 };
+
+static char *sysnames[] = {
+  [SYS_fork]    "fork",
+  [SYS_exit]    "exit",
+  [SYS_wait]    "wait",
+  [SYS_pipe]    "pipe",
+  [SYS_read]    "read",
+  [SYS_kill]    "kill",
+  [SYS_exec]    "exec",
+  [SYS_fstat]   "fstat",
+  [SYS_chdir]   "chdir",
+  [SYS_dup]     "dup",
+  [SYS_getpid]  "getpid",
+  [SYS_sbrk]    "sbrk",
+  [SYS_sleep]   "sleep",
+  [SYS_uptime]  "uptime",
+  [SYS_open]    "open",
+  [SYS_write]   "write",
+  [SYS_mknod]   "mknod",
+  [SYS_unlink]  "unlink",
+  [SYS_link]    "link",
+  [SYS_mkdir]   "mkdir",
+  [SYS_close]   "close",
+  [SYS_ntas]    "ntas",
+  [SYS_crash]   "crash",
+  [SYS_trace]   "trace",
+  [SYS_sysinfo] "sysinfo",
+};
+
+int
+print_arg(int num)
+{
+  if(!strncmp(sysnames[num], "fork", strlen("fork"))){
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "exit", strlen("exit"))){
+    int n;
+    if(argint(0, &n) < 0)
+      return -1;
+    printf("%d", n);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "wait", strlen("wait"))){
+    uint64 p;
+    if(argaddr(0, &p) < 0)
+      return -1;
+    printf("%x", p);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "pipe", strlen("pipe"))){
+    uint64 fdarray;
+    if(argaddr(0, &fdarray) < 0)
+      return -1;
+    printf("%x", fdarray);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "write", strlen("write"))){
+    int fd, n;
+    uint64 p;
+
+    if(argint(0, &fd) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
+      return -1;
+    printf("%d, %x, %d", fd, p, n);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "read", strlen("read"))){
+    int fd, n;
+    uint64 p;
+
+    if(argint(0, &fd) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
+      return -1;
+    printf("%d, %x, %d", fd, p, n);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "close", strlen("close"))){
+    int fd;
+    if(argint(0, &fd) < 0)
+      return -1;
+    printf("%d", fd);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "kill", strlen("kill"))){
+    int pid;
+    if(argint(0, &pid) < 0)
+      return -1;
+    printf("%d", pid);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "exec", strlen("exec"))){
+    char path[MAXPATH], *argv[MAXARG];
+    int i;
+    uint64 uargv, uarg;
+
+    if(argstr(0, path, MAXPATH) < 0 || argaddr(1, &uargv) < 0){
+      return -1;
+    }
+    memset(argv, 0, sizeof(argv));
+    for(i=0;; i++){
+      if(i >= NELEM(argv)){
+        goto bad;
+      }
+      if(fetchaddr(uargv+sizeof(uint64)*i, (uint64*)&uarg) < 0){
+        goto bad;
+      }
+      if(uarg == 0){
+        argv[i] = 0;
+        break;
+      }
+      argv[i] = kalloc();
+      if(argv[i] == 0)
+        panic("sys_exec kalloc");
+      if(fetchstr(uarg, argv[i], PGSIZE) < 0){
+        goto bad;
+      }
+    }
+
+    printf("%s,", path);
+    for(i = 0; i < NELEM(argv) && argv[i] != 0; i++) {
+      printf(" %s,", argv[i]);
+      kfree(argv[i]);
+    }
+    return 0;
+bad:
+  for(i = 0; i < NELEM(argv) && argv[i] != 0; i++)
+    kfree(argv[i]);
+  return -1;
+  }
+
+  if(!strncmp(sysnames[num], "open", strlen("open"))){
+    char path[MAXPATH];
+    int omode;
+    if(argstr(0, path, MAXPATH) < 0 || argint(1, &omode) < 0)
+      return -1;
+    printf("%s, %x", path, omode);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "mknod", strlen("mknod"))){
+    char path[MAXPATH];
+    int major, minor;
+    if((argstr(0, path, MAXPATH)) < 0 ||
+      argint(1, &major) < 0 ||
+      argint(2, &minor) < 0){
+      return -1;
+    }
+    printf("%s, %d, %d", path, major, minor);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "unlink", strlen("unlink"))){
+    char path[MAXPATH];
+    if(argstr(0, path, MAXPATH) < 0)
+      return -1;
+    printf("%s", path);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "fstat", strlen("fstat"))){
+    int fd;
+    uint64 st; // user pointer to struct stat
+    if(argint(0, &fd) < 0 || argaddr(1, &st) < 0)
+      return -1;
+    printf("%s, %x", fd, st);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "link", strlen("link"))){
+    char new[MAXPATH], old[MAXPATH];
+    if(argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
+      return -1;
+    printf("%s, %s", old, new);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "mkdir", strlen("mkdir"))){
+    char path[MAXPATH];
+    if(argstr(0, path, MAXPATH) < 0)
+      return -1;
+    printf("%s", path);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "chdir", strlen("chdir"))){
+    char path[MAXPATH];
+    if(argstr(0, path, MAXPATH) < 0)
+      return -1;
+    printf("%s", path);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "dup", strlen("dup"))){
+    int fd;
+    if(argint(0, &fd) < 0)
+      return -1;
+    printf("%d", fd);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "getpid", strlen("getpid"))){
+    return 0;
+  }
+  
+  if(!strncmp(sysnames[num], "sbrk", strlen("sbrk"))){
+    int n;
+    if(argint(0, &n) < 0)
+      return -1;
+    printf("%d", n);
+    return 0;
+  }
+  
+  if(!strncmp(sysnames[num], "sleep", strlen("sleep"))){
+    int n;
+    if(argint(0, &n) < 0)
+      return -1;
+    printf("%d", n);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "uptime", strlen("uptime"))){
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "ntas", strlen("ntas"))){
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "crash", strlen("crash"))){
+    char path[MAXPATH];
+    int crash;
+    
+    if(argstr(0, path, MAXPATH) < 0 || argint(1, &crash) < 0)
+      return -1;
+    printf("%s, %d", path, crash);
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "mount", strlen("mount"))){
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "umount", strlen("umount"))){
+    return 0;
+  }
+
+  if(!strncmp(sysnames[num], "trace", strlen("trace"))){
+    int mask;
+    if(argint(0, &mask) < 0)
+      return -1;
+    printf("%d");
+    return 0;
+  }
+  return 0;
+}
 
 void
 syscall(void)
@@ -141,7 +406,15 @@ syscall(void)
 
   num = p->tf->a7;
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
-    p->tf->a0 = syscalls[num]();
+    uint64 ret = syscalls[num]();
+
+    if ((1 << num) & p->tracemask) {
+      printf("%d syscall %s(", p->pid, sysnames[num]);
+      if(print_arg(num) == -1)
+        printf("bad arguments");
+      printf(") -> %d\n", ret);
+    }
+    p->tf->a0 = ret;
   } else {
     printf("%d %s: unknown sys call %d\n",
             p->pid, p->name, num);

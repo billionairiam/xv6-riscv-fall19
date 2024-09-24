@@ -8,6 +8,7 @@
 #include "file.h"
 #include "proc.h"
 #include "defs.h"
+#include "sysinfo.h"
 
 struct cpu cpus[NCPU];
 
@@ -265,6 +266,7 @@ fork(void)
 
   np->parent = p;
 
+  np->tracemask = p->tracemask;
   // copy saved user registers.
   *(np->tf) = *(p->tf);
 
@@ -680,4 +682,37 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+uint64
+nprocs(void)
+{
+  uint64 nproc = 0;
+  struct proc *p;
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state != UNUSED) {
+      nproc++;
+    }
+    release(&p->lock);
+  }
+  return nproc;
+}
+
+int
+sysinfo(uint64 addr)
+{
+  struct proc *p = myproc();
+  struct sysinfo sinfo;
+
+  uint64 freemem = kfreemem();
+  uint64 nproc = nprocs();
+  
+  sinfo.freemem = freemem;
+  sinfo.nproc = nproc;
+
+  if(copyout(p->pagetable, addr, (char*)&sinfo, sizeof(sinfo)) < 0)
+    return -1;
+  return 0;
 }
